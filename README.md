@@ -3,6 +3,8 @@ Adds new hooks and methods for ModPE. <br />
 It can break the ModPE's limit.
 ## Current API:
 ```
+event listeners:
+    function onNewModPELoaded() - You can use NewModPE APIs after this event is fired
 global classes:
     N_Player - provides some player related utilities
     methods:
