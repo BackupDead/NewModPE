@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #define LOG_TAG "newmodpe"
@@ -15,15 +16,7 @@
 
 #define MCPE_DATA_PATH "/sdcard/games/com.mojang/NewModPEDex.dex"
 #define MCPE_DATA_PATH_DUMMY "/data/data/net.zhuoweizhang.mcpelauncher.pro/files/"
-
-static bool dexLoaded = false;
-
-extern JavaVM* bl_JavaVM;
-extern jclass bl_scriptmanager_class;
-
-static jclass ScriptState;
-static jclass ScriptableObject;
-static jclass N_Player;
+#define MCPE_SCRIPT_PATH "/data/data/net.zhuoweizhang.mcpelauncher.pro/app_modscripts/"
 
 class BinaryStream;
 class EntityDefinitionGroup;
@@ -134,37 +127,67 @@ class Minecraft {
 class MinecraftClient {
 	public:
 	Minecraft* getServer();
+	void init();
 	void onTick(int, int);
 };
 
-static void (*MinecraftClient$onPlayerLoaded_real)(MinecraftClient*, Player*);
-static void MinecraftClient$onPlayerLoaded(MinecraftClient* client, Player* player) {
-    if (!dexLoaded) {
-        MinecraftClient$onPlayerLoaded_real(client, player);
-        return;
+static bool dexLoaded = false;
+
+extern JavaVM* bl_JavaVM;
+extern jclass bl_scriptmanager_class;
+
+// NO CLASS FINDING IN THREAD
+static jclass File;
+static jclass List;
+static jclass MainActivity;
+static jclass N_Player;
+static jclass Object;
+static jclass Reference;
+static jclass ScriptState;
+static jclass ScriptableObject;
+
+void initRhinoClassesAfterScriptLoad() {
+    if (dexLoaded) {
+        JNIEnv* env;
+        int attachStatus = bl_JavaVM->GetEnv((void**) &env, JNI_VERSION_1_2);
+        if (attachStatus == JNI_EDETACHED)
+            bl_JavaVM->AttachCurrentThread(&env, NULL);
+        jobject mainActivity = env->CallObjectMethod(
+            env->GetStaticObjectField(MainActivity, env->GetStaticFieldID(MainActivity, "currentMainActivity", "Ljava/lang/ref/WeakReference;"))
+            , env->GetMethodID(Reference, "get", "()Ljava/lang/Object;")
+        );
+        jfieldID displayMetricsGet = env->GetFieldID(MainActivity, "displayMetrics", "Landroid/util/DisplayMetrics;");
+        jobject scripts = env->GetStaticObjectField(bl_scriptmanager_class, env->GetStaticFieldID(bl_scriptmanager_class, "scripts", "Ljava/util/List;"));
+        jmethodID sizeGet = env->GetMethodID(List, "size", "()I");
+        // avoid POSIX
+        jsize scriptCount = env->GetArrayLength((jobjectArray) env->CallObjectMethod(
+            env->NewObject(File, env->GetMethodID(File, "<init>", "(Ljava/lang/String;)V"), env->NewStringUTF(MCPE_SCRIPT_PATH))
+            , env->GetMethodID(File, "list", "()[Ljava/lang/String;")
+        ));
+        while (env->CallIntMethod(scripts, sizeGet) < scriptCount);
+        jint size = env->CallIntMethod(scripts, sizeGet);
+        jmethodID listGet = env->GetMethodID(List, "get", "(I)Ljava/lang/Object;");
+        jfieldID getScope = env->GetFieldID(ScriptState, "scope", "Lorg/mozilla/javascript/Scriptable;");
+        jmethodID hasProperty = env->GetStaticMethodID(ScriptableObject, "hasProperty", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/String;)Z");
+        jmethodID defineClass = env->GetStaticMethodID(ScriptableObject, "defineClass", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/Class;Z)V");
+        LOGE("FUCK");
+
+        for (int i = 0; i < size; i++) {
+            LOGE("FUCK");
+            jobject scope = env->GetObjectField(env->CallObjectMethod(scripts, listGet, i), getScope);
+            if (!env->CallStaticBooleanMethod(ScriptableObject, hasProperty, scope, env->NewStringUTF("N_Player")))
+                env->CallStaticVoidMethod(ScriptableObject, defineClass, scope, N_Player, true);
+        }
+
+        env->CallStaticVoidMethod(
+            bl_scriptmanager_class
+            , env->GetStaticMethodID(bl_scriptmanager_class, "callScriptMethod", "(Ljava/lang/String;[Ljava/lang/Object;)V")
+            , env->NewStringUTF("onNewModPELoaded")
+            , env->NewObjectArray(0, Object, NULL)
+        );
+        if (attachStatus == JNI_EDETACHED)
+            bl_JavaVM->DetachCurrentThread();
     }
-
-    JNIEnv* env;
-    int attachStatus = bl_JavaVM->GetEnv((void**) &env, JNI_VERSION_1_2);
-    if (attachStatus == JNI_EDETACHED)
-        bl_JavaVM->AttachCurrentThread(&env, NULL);
-    jclass listCls = env->FindClass("java/util/List");
-    jobject scripts = env->GetStaticObjectField(bl_scriptmanager_class, env->GetStaticFieldID(bl_scriptmanager_class, "scripts", "Ljava/util/List;"));
-    jint size = env->CallIntMethod(scripts, env->GetMethodID(listCls, "size", "()I"));
-    jmethodID listGet = env->GetMethodID(listCls, "get", "(I)Ljava/lang/Object;");
-    jfieldID getScope = env->GetFieldID(ScriptState, "scope", "Lorg/mozilla/javascript/Scriptable;");
-    jmethodID hasProperty = env->GetStaticMethodID(ScriptableObject, "hasProperty", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/String;)Z");
-    jmethodID defineClass = env->GetStaticMethodID(ScriptableObject, "defineClass", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/Class;Z)V");
-
-    for (int i = 0; i < size; i++) {
-        jobject scope = env->GetObjectField(env->CallObjectMethod(scripts, listGet, i), getScope);
-        if (!env->CallStaticBooleanMethod(ScriptableObject, hasProperty, scope, env->NewStringUTF("N_Player")))
-            env->CallStaticVoidMethod(ScriptableObject, defineClass, scope, N_Player, true);
-    }
-
-    if (attachStatus == JNI_EDETACHED)
-        bl_JavaVM->DetachCurrentThread();
-    MinecraftClient$onPlayerLoaded_real(client, player);
 }
 
 static struct {
@@ -265,6 +288,21 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
         jclass scriptableObjectCls = env->FindClass("org/mozilla/javascript/ScriptableObject");
         ScriptableObject = (jclass) env->NewGlobalRef(scriptableObjectCls);
         env->DeleteLocalRef(scriptableObjectCls);
+        jclass mainActivityCls = env->FindClass("com/mojang/minecraftpe/MainActivity");
+        MainActivity = (jclass) env->NewGlobalRef(mainActivityCls);
+        env->DeleteLocalRef(mainActivityCls);
+        jclass referenceCls = env->FindClass("java/lang/ref/Reference");
+        Reference = (jclass) env->NewGlobalRef(referenceCls);
+        env->DeleteLocalRef(referenceCls);
+        jclass listCls = env->FindClass("java/util/List");
+        List = (jclass) env->NewGlobalRef(listCls);
+        env->DeleteLocalRef(listCls);
+        jclass fileCls = env->FindClass("java/io/File");
+        File = (jclass) env->NewGlobalRef(fileCls);
+        env->DeleteLocalRef(fileCls);
+        jclass objectCls = env->FindClass("java/lang/Object");
+        Object = (jclass) env->NewGlobalRef(objectCls);
+        env->DeleteLocalRef(objectCls);
         if (attachStatus == JNI_EDETACHED)
             bl_JavaVM->DetachCurrentThread();
     }
@@ -272,7 +310,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     hookSymbol("_ZN3MobC2ER21EntityDefinitionGroupRK26EntityDefinitionIdentifier", Mob$Mob_1);
     hookSymbol("_ZN3MobC2ER5Level", Mob$Mob_2);
     hookSymbol("_ZN3MobD2Ev", Mob$dMob);
-    hookSymbol("_ZN15MinecraftClient14onPlayerLoadedER6Player", MinecraftClient$onPlayerLoaded);
     hookSymbol("_ZN15MinecraftClient6onTickEii", MinecraftClient$onTick);
+    std::thread doAfterScriptLoad(initRhinoClassesAfterScriptLoad);
+    doAfterScriptLoad.detach();
 	return JNI_VERSION_1_2;
 }
