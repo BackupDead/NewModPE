@@ -17,13 +17,78 @@
 #define MCPE_DATA_PATH "/sdcard/games/com.mojang/NewModPEDex.dex"
 #define MCPE_DATA_PATH_DUMMY "/data/data/net.zhuoweizhang.mcpelauncher.pro/files/"
 
+static bool dexLoaded = false;
+
+extern JavaVM* bl_JavaVM;
+extern jclass bl_scriptmanager_class;
+
+// NO CLASS FINDING IN THREAD
+static jclass List;
+static jclass MainActivity;
+static jclass N_Player;
+static jclass N_Proxy;
+static jclass Object;
+static jclass Reference;
+static jclass ScriptState;
+static jclass ScriptableObject;
+static jclass Set;
+static jclass Utils;
+
+void initRhinoClassesAfterScriptLoad() {
+    if (dexLoaded) {
+        JNIEnv* env;
+        int attachStatus = bl_JavaVM->GetEnv((void**) &env, JNI_VERSION_1_2);
+        if (attachStatus == JNI_EDETACHED)
+            bl_JavaVM->AttachCurrentThread(&env, NULL);
+        jobject mainActivity = env->CallObjectMethod(
+            env->GetStaticObjectField(MainActivity, env->GetStaticFieldID(MainActivity, "currentMainActivity", "Ljava/lang/ref/WeakReference;"))
+            , env->GetMethodID(Reference, "get", "()Ljava/lang/Object;")
+        );
+        jfieldID displayMetricsGet = env->GetFieldID(MainActivity, "displayMetrics", "Landroid/util/DisplayMetrics;");
+        jobject scripts = env->GetStaticObjectField(bl_scriptmanager_class, env->GetStaticFieldID(bl_scriptmanager_class, "scripts", "Ljava/util/List;"));
+        jmethodID sizeGet = env->GetMethodID(List, "size", "()I");
+        jint scriptCount = env->CallIntMethod(
+            env->CallStaticObjectMethod(Utils, env->GetStaticMethodID(Utils, "getEnabledScripts", "()Ljava/util/Set;"))
+            , env->GetMethodID(Set, "size", "()I")
+        );
+        while (env->CallIntMethod(scripts, sizeGet) < scriptCount);
+        jint size = env->CallIntMethod(scripts, sizeGet);
+        jmethodID listGet = env->GetMethodID(List, "get", "(I)Ljava/lang/Object;");
+        jfieldID getScope = env->GetFieldID(ScriptState, "scope", "Lorg/mozilla/javascript/Scriptable;");
+        jmethodID hasProperty = env->GetStaticMethodID(ScriptableObject, "hasProperty", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/String;)Z");
+        jmethodID defineClass = env->GetStaticMethodID(ScriptableObject, "defineClass", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/Class;Z)V");
+        LOGE("FUCK");
+
+        for (int i = 0; i < size; i++) {
+            LOGE("FUCK");
+            jobject scope = env->GetObjectField(env->CallObjectMethod(scripts, listGet, i), getScope);
+            if (!env->CallStaticBooleanMethod(ScriptableObject, hasProperty, scope, env->NewStringUTF("N_Player")))
+                env->CallStaticVoidMethod(ScriptableObject, defineClass, scope, N_Player, true);
+            if (!env->CallStaticBooleanMethod(ScriptableObject, hasProperty, scope, env->NewStringUTF("N_Proxy")))
+                env->CallStaticVoidMethod(ScriptableObject, defineClass, scope, N_Proxy, true);
+        }
+
+        env->CallStaticVoidMethod(
+            bl_scriptmanager_class
+            , env->GetStaticMethodID(bl_scriptmanager_class, "callScriptMethod", "(Ljava/lang/String;[Ljava/lang/Object;)V")
+            , env->NewStringUTF("onNewModPELoaded")
+            , env->NewObjectArray(0, Object, NULL)
+        );
+        if (attachStatus == JNI_EDETACHED)
+            bl_JavaVM->DetachCurrentThread();
+    }
+}
+
 class BinaryStream;
+enum class CommandPermissionLevel;
+class CompoundTag;
 class EntityDefinitionGroup;
 class EntityDefinitionIdentifier;
 class Level;
 class NetEventCallback;
 class NetworkHandler;
 class NetworkIdentifier;
+class PermissionsHandler;
 
 // Size : 12
 class Packet {
@@ -130,76 +195,40 @@ class MinecraftClient {
 	void onTick(int, int);
 };
 
-static bool dexLoaded = false;
+// Size : 24
+class Abilities {
+    public:
+    bool invulnerable; // 0
+    bool flying; // 1
+    bool mayfly; // 2
+    bool instabuild; // 3
+    bool wtf; // 4
+    bool lightning; // 5
+    float walkingSpeed; // 8
+    float flyingSpeed; // 12
+    bool worldBuilder; // 16
+    PermissionsHandler* permissions; // 20
 
-extern JavaVM* bl_JavaVM;
-extern jclass bl_scriptmanager_class;
-
-// NO CLASS FINDING IN THREAD
-static jclass List;
-static jclass MainActivity;
-static jclass N_Player;
-static jclass Object;
-static jclass Reference;
-static jclass ScriptState;
-static jclass ScriptableObject;
-static jclass Set;
-static jclass Utils;
-
-void initRhinoClassesAfterScriptLoad() {
-    if (dexLoaded) {
-        JNIEnv* env;
-        int attachStatus = bl_JavaVM->GetEnv((void**) &env, JNI_VERSION_1_2);
-        if (attachStatus == JNI_EDETACHED)
-            bl_JavaVM->AttachCurrentThread(&env, NULL);
-        jobject mainActivity = env->CallObjectMethod(
-            env->GetStaticObjectField(MainActivity, env->GetStaticFieldID(MainActivity, "currentMainActivity", "Ljava/lang/ref/WeakReference;"))
-            , env->GetMethodID(Reference, "get", "()Ljava/lang/Object;")
-        );
-        jfieldID displayMetricsGet = env->GetFieldID(MainActivity, "displayMetrics", "Landroid/util/DisplayMetrics;");
-        jobject scripts = env->GetStaticObjectField(bl_scriptmanager_class, env->GetStaticFieldID(bl_scriptmanager_class, "scripts", "Ljava/util/List;"));
-        jmethodID sizeGet = env->GetMethodID(List, "size", "()I");
-        jint scriptCount = env->CallIntMethod(
-            env->CallStaticObjectMethod(Utils, env->GetStaticMethodID(Utils, "getEnabledScripts", "()Ljava/util/Set;"))
-            , env->GetMethodID(Set, "size", "()I")
-        );
-        while (env->CallIntMethod(scripts, sizeGet) < scriptCount);
-        jint size = env->CallIntMethod(scripts, sizeGet);
-        jmethodID listGet = env->GetMethodID(List, "get", "(I)Ljava/lang/Object;");
-        jfieldID getScope = env->GetFieldID(ScriptState, "scope", "Lorg/mozilla/javascript/Scriptable;");
-        jmethodID hasProperty = env->GetStaticMethodID(ScriptableObject, "hasProperty", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/String;)Z");
-        jmethodID defineClass = env->GetStaticMethodID(ScriptableObject, "defineClass", "(Lorg/mozilla/javascript/Scriptable;Ljava/lang/Class;Z)V");
-        LOGE("FUCK");
-
-        for (int i = 0; i < size; i++) {
-            LOGE("FUCK");
-            jobject scope = env->GetObjectField(env->CallObjectMethod(scripts, listGet, i), getScope);
-            if (!env->CallStaticBooleanMethod(ScriptableObject, hasProperty, scope, env->NewStringUTF("N_Player")))
-                env->CallStaticVoidMethod(ScriptableObject, defineClass, scope, N_Player, true);
-        }
-
-        env->CallStaticVoidMethod(
-            bl_scriptmanager_class
-            , env->GetStaticMethodID(bl_scriptmanager_class, "callScriptMethod", "(Ljava/lang/String;[Ljava/lang/Object;)V")
-            , env->NewStringUTF("onNewModPELoaded")
-            , env->NewObjectArray(0, Object, NULL)
-        );
-        if (attachStatus == JNI_EDETACHED)
-            bl_JavaVM->DetachCurrentThread();
-    }
-}
+    public:
+    Abilities();
+    void addSaveData(CompoundTag&) const;
+    CommandPermissionLevel getCommandPermissions() const;
+    float getFlyingSpeed() const;
+    float getWalkingSpeed() const;
+    bool isFlying() const;
+    bool isWorldBuilder() const;
+    void loadSaveData(CompoundTag&);
+    void setCommandPermissions(CommandPermissionLevel);
+    void setFlyingSpeed(float);
+    void setWalkingSpeed(float);
+    void setWorldBuilder(bool);
+};
 
 static struct {
     bool enable;
     bool hitMob;
     int distance;
 } roundAttackConfig = { false, false, 12 };
-
-JNIEXPORT void JNICALL nativeSetRoundAttack(JNIEnv* env, jclass clazz, jboolean enable, jboolean hitMob, jint distance) {
-    roundAttackConfig.enable = enable;
-    roundAttackConfig.hitMob = hitMob;
-    roundAttackConfig.distance = distance;
-}
 
 static std::vector<Mob*> mobs;
 
@@ -246,6 +275,26 @@ static void MinecraftClient$onTick(MinecraftClient* client, int idk1, int idk2) 
         }
 }
 
+typedef bool (*isLocalPlayer_t)(Player*);
+bool isLocalPlayer(Player* player) {
+    return access(access(player, void**, 0), isLocalPlayer_t, 0x4AC)(player);
+}
+
+JNIEXPORT void JNICALL nativeSetRoundAttack(JNIEnv* env, jclass clazz, jboolean enable, jboolean hitMob, jint distance) {
+    roundAttackConfig.enable = enable;
+    roundAttackConfig.hitMob = hitMob;
+    roundAttackConfig.distance = distance;
+}
+
+JNIEXPORT void JNICALL nativeSetCanFly(JNIEnv* env, jclass clazz, jboolean enable) {
+    for (Mob* const& mob : mobs)
+        if (EntityClassTree::isInstanceOf(*mob, EntityType::PLAYER)
+            && isLocalPlayer(static_cast<Player*>(mob))) {
+            access(mob, Abilities, 0xEC0).mayfly = enable;
+            break; // ONE LOCAL PLAYER
+        }
+}
+
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     FILE* dexFile;
 
@@ -277,10 +326,19 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
             , true
             , dexClassLoader
         );
-        JNINativeMethod implementation[] = { { "nativeSetRoundAttack", "(ZZI)V", (void*) *nativeSetRoundAttack } };
-        env->RegisterNatives(n_playerCls, implementation, 1);
+        JNINativeMethod implementation[] = { { "nativeSetRoundAttack", "(ZZI)V", (void*) *nativeSetRoundAttack }, { "nativeSetCanFly", "(Z)V", (void*) *nativeSetCanFly } };
+        env->RegisterNatives(n_playerCls, implementation, 2);
         N_Player = (jclass) env->NewGlobalRef(n_playerCls);
         env->DeleteLocalRef(n_playerCls);
+        jclass n_proxyCls = (jclass) env->CallStaticObjectMethod(
+            classCls
+            , env->GetStaticMethodID(classCls, "forName", "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;")
+            , env->NewStringUTF("com.rmpi.newmodpe.N_Proxy")
+            , true
+            , dexClassLoader
+        );
+        N_Proxy = (jclass) env->NewGlobalRef(n_proxyCls);
+        env->DeleteLocalRef(n_proxyCls);
         jclass scriptStateCls = env->FindClass("net/zhuoweizhang/mcpelauncher/ScriptManager$ScriptState");
         ScriptState = (jclass) env->NewGlobalRef(scriptStateCls);
         env->DeleteLocalRef(scriptStateCls);

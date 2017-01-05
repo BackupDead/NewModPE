@@ -13,4 +13,12 @@ global classes:
                 enable - Enable kill aura?
                 hitMob - Hit mob?
                 distance - Target mob filtering with distance
+        static void setCanFly(boolean enable); - enables flying
+        parameters:
+                enable - Enable flying?
+    N_Proxy - provides some java & android exploits
+    methods:
+        static void setFixedScripting(boolean enable); - lets scriptingEnabled be true always
+            paramteters:
+                enable - Enabled fixed scripting?
 ```
