@@ -16,7 +16,6 @@
 
 #define MCPE_DATA_PATH "/sdcard/games/com.mojang/NewModPEDex.dex"
 #define MCPE_DATA_PATH_DUMMY "/data/data/net.zhuoweizhang.mcpelauncher.pro/files/"
-#define MCPE_SCRIPT_PATH "/data/data/net.zhuoweizhang.mcpelauncher.pro/app_modscripts/"
 
 class BinaryStream;
 class EntityDefinitionGroup;
@@ -137,7 +136,6 @@ extern JavaVM* bl_JavaVM;
 extern jclass bl_scriptmanager_class;
 
 // NO CLASS FINDING IN THREAD
-static jclass File;
 static jclass List;
 static jclass MainActivity;
 static jclass N_Player;
@@ -145,6 +143,8 @@ static jclass Object;
 static jclass Reference;
 static jclass ScriptState;
 static jclass ScriptableObject;
+static jclass Set;
+static jclass Utils;
 
 void initRhinoClassesAfterScriptLoad() {
     if (dexLoaded) {
@@ -159,11 +159,10 @@ void initRhinoClassesAfterScriptLoad() {
         jfieldID displayMetricsGet = env->GetFieldID(MainActivity, "displayMetrics", "Landroid/util/DisplayMetrics;");
         jobject scripts = env->GetStaticObjectField(bl_scriptmanager_class, env->GetStaticFieldID(bl_scriptmanager_class, "scripts", "Ljava/util/List;"));
         jmethodID sizeGet = env->GetMethodID(List, "size", "()I");
-        // avoid POSIX
-        jsize scriptCount = env->GetArrayLength((jobjectArray) env->CallObjectMethod(
-            env->NewObject(File, env->GetMethodID(File, "<init>", "(Ljava/lang/String;)V"), env->NewStringUTF(MCPE_SCRIPT_PATH))
-            , env->GetMethodID(File, "list", "()[Ljava/lang/String;")
-        ));
+        jint scriptCount = env->CallIntMethod(
+            env->CallStaticObjectMethod(Utils, env->GetStaticMethodID(Utils, "getEnabledScripts", "()Ljava/util/Set;"))
+            , env->GetMethodID(Set, "size", "()I")
+        );
         while (env->CallIntMethod(scripts, sizeGet) < scriptCount);
         jint size = env->CallIntMethod(scripts, sizeGet);
         jmethodID listGet = env->GetMethodID(List, "get", "(I)Ljava/lang/Object;");
@@ -297,9 +296,12 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
         jclass listCls = env->FindClass("java/util/List");
         List = (jclass) env->NewGlobalRef(listCls);
         env->DeleteLocalRef(listCls);
-        jclass fileCls = env->FindClass("java/io/File");
-        File = (jclass) env->NewGlobalRef(fileCls);
-        env->DeleteLocalRef(fileCls);
+        jclass utilsCls = env->FindClass("net/zhuoweizhang/mcpelauncher/Utils");
+        Utils = (jclass) env->NewGlobalRef(utilsCls);
+        env->DeleteLocalRef(utilsCls);
+        jclass setCls = env->FindClass("java/util/Set");
+        Set = (jclass) env->NewGlobalRef(setCls);
+        env->DeleteLocalRef(setCls);
         jclass objectCls = env->FindClass("java/lang/Object");
         Object = (jclass) env->NewGlobalRef(objectCls);
         env->DeleteLocalRef(objectCls);
