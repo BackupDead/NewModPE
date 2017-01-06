@@ -84,7 +84,6 @@ enum class CommandPermissionLevel;
 class CompoundTag;
 class EntityDefinitionGroup;
 class EntityDefinitionIdentifier;
-class Level;
 class NetEventCallback;
 class NetworkHandler;
 class NetworkIdentifier;
@@ -92,26 +91,26 @@ class PermissionsHandler;
 
 // Size : 12
 class Packet {
-	public:
-	// void** vtable; // 0
-	char filler1[8]; // 4
+    public:
+    // void** vtable; // 0
+    char filler1[8]; // 4
 
-	public:
-	virtual ~Packet();
-	virtual int getId() const = 0;
-	virtual void write(BinaryStream&) const = 0;
-	virtual void read(BinaryStream&) = 0;
-	virtual void handle(NetworkIdentifier const&, NetEventCallback const&) const = 0;
-	virtual bool disallowBatching();
+    public:
+    virtual ~Packet();
+    virtual int getId() const = 0;
+    virtual void write(BinaryStream&) const = 0;
+    virtual void read(BinaryStream&) = 0;
+    virtual void handle(NetworkIdentifier const&, NetEventCallback const&) const = 0;
+    virtual bool disallowBatching();
 };
 
 // Size : 4
 class MinecraftPackets {
-	public:
-	Packet* retval; // 0
+    public:
+    Packet* retval; // 0
 
-	public:
-	Packet* createPacket(int);
+    public:
+    Packet* createPacket(int);
 };
 
 typedef long long EntityRuntimeID;
@@ -119,33 +118,93 @@ typedef long long EntityUniqueID;
 
 // Size : 24
 class InteractPacket : public Packet {
-	public:
-	unsigned char type; // 12
-	EntityRuntimeID runtimeID; // 16
+    public:
+    unsigned char type; // 12
+    EntityRuntimeID runtimeID; // 16
 
-	public:
-	virtual ~InteractPacket();
-	virtual int getId() const;
-	virtual void write(BinaryStream&) const;
-	virtual void read(BinaryStream&);
-	virtual void handle(NetworkIdentifier const&, NetEventCallback const&) const;
+    public:
+    virtual ~InteractPacket();
+    virtual int getId() const;
+    virtual void write(BinaryStream&) const;
+    virtual void read(BinaryStream&);
+    virtual void handle(NetworkIdentifier const&, NetEventCallback const&) const;
+};
+
+enum class TextPacketType {
+    RAW,
+    CHAT,
+    TRANSLATION,
+    POPUP,
+    TIP,
+    SYSTEM,
+    WHISPER
+};
+
+// Size : 36
+class TextPacket : public Packet {
+    public:
+    TextPacketType type; // 12
+    std::string sender; // 16
+    std::string msg; // 20
+    std::vector<std::string> params; // 24
+
+    public:
+    TextPacket(TextPacketType type, std::string const& sender, std::string const& msg, std::vector<std::string> const& params) : type(type), sender(sender), msg(msg), params(params) {}
+
+    virtual ~TextPacket() {}
+    virtual int getId() const;
+    virtual void write(BinaryStream&) const;
+    virtual void read(BinaryStream&);
+    virtual void handle(NetworkIdentifier const&, NetEventCallback const&) const;
+
+    static TextPacket* createRaw(std::string const&);
+    static TextPacket* createSystemMessage(std::string const&);
+    static TextPacket* createTranslated(std::string const&, std::vector<std::string> const&);
+};
+
+class Player;
+
+class BatchedPacketSender {
+    public:
+    virtual ~BatchedPacketSender();
+    virtual void send(Packet const&);
+    virtual void send(NetworkIdentifier const&, Packet const&);
+    virtual void sendBroadcast(NetworkIdentifier const&, Packet const&);
+    virtual void sendBroadcast(Packet const&);
+    virtual void flush(NetworkIdentifier const&);
+
+    BatchedPacketSender(NetworkHandler&);
+    /* BatchPacket* */ void _getBatch(NetworkIdentifier const&);
+    bool _playerExists(NetworkIdentifier const&) const;
+    void _queuePacket(NetworkIdentifier const&, Packet const&);
+    void addLoopbackCallback(NetEventCallback &);
+    void removeLoopbackCallback(NetEventCallback &);
+    void setPlayerList(std::vector<std::unique_ptr<Player>> const*);
+    void update();
+};
+
+typedef BatchedPacketSender PacketSender;
+
+class Level {
+    public:
+    PacketSender* getPacketSender() const;
 };
 
 class Entity {
-	public:
-	float distanceTo(Entity const&) const;
-	Level* getLevel();
-	Level* getLevel() const;
-	EntityRuntimeID getRuntimeID() const;
-	EntityUniqueID getUniqueID() const;
-	bool hasRuntimeID() const;
+    public:
+    float distanceTo(Entity const&) const;
+    Level* getLevel();
+    Level* getLevel() const;
+    EntityRuntimeID getRuntimeID() const;
+    EntityUniqueID getUniqueID() const;
+    bool hasRuntimeID() const;
 };
 
 class Mob : public Entity {
-	public:
-	virtual ~Mob();
-	Mob(EntityDefinitionGroup&, EntityDefinitionIdentifier const&);
-	Mob(Level&);
+    public:
+    virtual ~Mob();
+    Mob(EntityDefinitionGroup&, EntityDefinitionIdentifier const&);
+    Mob(Level&);
 };
 
 class Player : public Mob {
@@ -154,45 +213,24 @@ class Player : public Mob {
 };
 
 enum class EntityType {
-	PLAYER = 0x100 | 63
+    PLAYER = 0x100 | 63
 };
 
 class EntityClassTree {
-	public:
-	static bool isInstanceOf(Entity const&, EntityType);
+    public:
+    static bool isInstanceOf(Entity const&, EntityType);
 };
-
-class BatchedPacketSender {
-	public:
-	virtual ~BatchedPacketSender();
-	virtual void send(Packet const&);
-	virtual void send(NetworkIdentifier const&, Packet const&);
-	virtual void sendBroadcast(NetworkIdentifier const&, Packet const&);
-	virtual void sendBroadcast(Packet const&);
-	virtual void flush(NetworkIdentifier const&);
-
-	BatchedPacketSender(NetworkHandler&);
-	/* BatchPacket* */ void _getBatch(NetworkIdentifier const&);
-	bool _playerExists(NetworkIdentifier const&) const;
-	void _queuePacket(NetworkIdentifier const&, Packet const&);
-	void addLoopbackCallback(NetEventCallback &);
-	void removeLoopbackCallback(NetEventCallback &);
-	void setPlayerList(std::vector<std::unique_ptr<Player>> const*);
-	void update();
-};
-
-typedef BatchedPacketSender PacketSender;
 
 class Minecraft {
-	public:
-	PacketSender* getPacketSender();
+    public:
+    PacketSender* getPacketSender();
 };
 
 class MinecraftClient {
-	public:
-	Minecraft* getServer();
-	void init();
-	void onTick(int, int);
+    public:
+    Minecraft* getServer();
+    void init();
+    void onTick(int, int);
 };
 
 // Size : 24
@@ -234,23 +272,23 @@ static std::vector<Mob*> mobs;
 
 static Mob* (*Mob$Mob_1_real)(Mob*, EntityDefinitionGroup*, EntityDefinitionIdentifier const*);
 static Mob* Mob$Mob_1(Mob* mob, EntityDefinitionGroup* group, EntityDefinitionIdentifier const* identifier) {
-	Mob$Mob_1_real(mob, group, identifier);
-	if (std::find(mobs.begin(), mobs.end(), mob) == mobs.end()) mobs.push_back(mob);
-	return mob;
+    Mob$Mob_1_real(mob, group, identifier);
+    if (std::find(mobs.begin(), mobs.end(), mob) == mobs.end()) mobs.push_back(mob);
+    return mob;
 }
 
 static Mob* (*Mob$Mob_2_real)(Mob*, Level*);
 static Mob* Mob$Mob_2(Mob* mob, Level* level) {
-	Mob$Mob_2_real(mob, level);
-	if (std::find(mobs.begin(), mobs.end(), mob) == mobs.end()) mobs.push_back(mob);
-	return mob;
+    Mob$Mob_2_real(mob, level);
+    if (std::find(mobs.begin(), mobs.end(), mob) == mobs.end()) mobs.push_back(mob);
+    return mob;
 }
 
 static Mob* (*Mob$dMob_real)(Mob*);
 static Mob* Mob$dMob(Mob* mob) {
-	mobs.erase(std::remove(mobs.begin(), mobs.end(), mob), mobs.end());
+    mobs.erase(std::remove(mobs.begin(), mobs.end(), mob), mobs.end());
 	Mob$dMob_real(mob);
-	return mob;
+    return mob;
 }
 
 static void (*MinecraftClient$onTick_real)(MinecraftClient*, int, int);
@@ -264,20 +302,25 @@ static void MinecraftClient$onTick(MinecraftClient* client, int idk1, int idk2) 
     MinecraftPackets packetProvider;
     for (Mob* const& target : mobs)
         if (target != thisPlayer
-                && target != NULL
-                && (roundAttackConfig.hitMob || EntityClassTree::isInstanceOf(*target, EntityType::PLAYER))
-                && target->distanceTo(*thisPlayer) <= roundAttackConfig.distance) {
-                thisPlayer->attack(*target);
-                InteractPacket* pk = static_cast<InteractPacket*>(packetProvider.createPacket(0x22));
-                pk->type = 2;
-                pk->runtimeID = access(target, EntityRuntimeID, 0xC60);
-                client->getServer()->getPacketSender()->send(*pk);
+            && target != NULL
+            && (roundAttackConfig.hitMob || EntityClassTree::isInstanceOf(*target, EntityType::PLAYER))
+            && target->distanceTo(*thisPlayer) <= roundAttackConfig.distance) {
+            thisPlayer->attack(*target);
+            InteractPacket* pk = static_cast<InteractPacket*>(packetProvider.createPacket(0x22));
+            pk->type = 2;
+            pk->runtimeID = access(target, EntityRuntimeID, 0xC60);
+            // client->getServer()->getPacketSender()->send(*pk);
+            thisPlayer->getLevel()->getPacketSender()->send(*pk);
         }
 }
 
 typedef bool (*isLocalPlayer_t)(Player*);
-bool isLocalPlayer(Player* player) {
+inline bool isLocalPlayer(Player* player) {
     return access(access(player, void**, 0), isLocalPlayer_t, 0x4AC)(player);
+}
+
+inline std::string getName(Player* player) {
+    return access(player, std::string, 0xEBC);
 }
 
 JNIEXPORT void JNICALL nativeSetRoundAttack(JNIEnv* env, jclass clazz, jboolean enable, jboolean hitMob, jint distance) {
@@ -293,6 +336,20 @@ JNIEXPORT void JNICALL nativeSetCanFly(JNIEnv* env, jclass clazz, jboolean enabl
             access(mob, Abilities, 0xEC0).mayfly = enable;
             break; // ONE LOCAL PLAYER
         }
+}
+
+JNIEXPORT void JNICALL nativeSendChat(JNIEnv* env, jclass clazz, jstring msg, jboolean hasSender) {
+    const char* chars = env->GetStringUTFChars(msg, NULL);
+    std::string _msg(chars);
+    env->ReleaseStringUTFChars(msg, chars);
+    for (Mob* const& mob : mobs)
+        if (EntityClassTree::isInstanceOf(*mob, EntityType::PLAYER)
+            && isLocalPlayer(static_cast<Player*>(mob))) {
+            TextPacket pk(TextPacketType::CHAT, hasSender ? access(static_cast<Player*>(mob), std::string, 0xEBC) : "", _msg, {});
+            mob->getLevel()->getPacketSender()->send(pk);
+            break; // ONE LOCAL PLAYER
+        }
+    LOGE("C");
 }
 
 JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -326,8 +383,12 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
             , true
             , dexClassLoader
         );
-        JNINativeMethod implementation[] = { { "nativeSetRoundAttack", "(ZZI)V", (void*) *nativeSetRoundAttack }, { "nativeSetCanFly", "(Z)V", (void*) *nativeSetCanFly } };
-        env->RegisterNatives(n_playerCls, implementation, 2);
+        JNINativeMethod implementation[] = {
+            { "nativeSetRoundAttack", "(ZZI)V", (void*) *nativeSetRoundAttack }
+            , { "nativeSetCanFly", "(Z)V", (void*) *nativeSetCanFly }
+            , { "nativeSendChat", "(Ljava/lang/String;Z)V", (void*) *nativeSendChat }
+        };
+        env->RegisterNatives(n_playerCls, implementation, sizeof(implementation) / sizeof(JNINativeMethod));
         N_Player = (jclass) env->NewGlobalRef(n_playerCls);
         env->DeleteLocalRef(n_playerCls);
         jclass n_proxyCls = (jclass) env->CallStaticObjectMethod(
